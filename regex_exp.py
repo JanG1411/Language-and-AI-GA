@@ -1,8 +1,6 @@
 import pandas as pd
 import re
 from typing import Optional, Dict
-
-
 import os
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename
@@ -13,6 +11,7 @@ if not reddit_posts:
     raise FileNotFoundError("No file was selected.")
 if not os.path.isfile(reddit_posts):
     raise FileNotFoundError(f"The file at {reddit_posts} does not exist.")
+
 reddit_posts_df = pd.read_csv(reddit_posts)
 
 MBTI_TYPES = [
