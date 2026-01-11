@@ -1,18 +1,19 @@
 import pandas as pd
 import re
-from typing import Optional, Dict
-import os
-from tkinter import Tk
-from tkinter.filedialog import askopenfilename
+from typing import Optional, Dict, Tuple
 
-Tk().withdraw()  # Hide the root Tkinter window
-reddit_posts = askopenfilename(title="Select the 'extrovert_introvert.csv' file", filetypes=[("CSV files", "*.csv")])
-if not reddit_posts:
-    raise FileNotFoundError("No file was selected.")
-if not os.path.isfile(reddit_posts):
-    raise FileNotFoundError(f"The file at {reddit_posts} does not exist.")
+reddit_posts = "/Users/jangalic04/Downloads/Language_and_AI/Assignment/extrovert_introvert.csv"
+df = pd.read_csv(reddit_posts)
 
-reddit_posts_df = pd.read_csv(reddit_posts)
+# ----------------------------
+# Load your dataset
+# ----------------------------
+reddit_posts = "/Users/jangalic04/Downloads/Language_and_AI/Assignment/extrovert_introvert.csv"
+df = pd.read_csv(reddit_posts)
+
+# ----------------------------
+# MBTI building blocks
+# ----------------------------
 
 MBTI_TYPES = [
     "INTJ","INTP","INFJ","INFP",
@@ -21,7 +22,7 @@ MBTI_TYPES = [
     "ESTJ","ESTP","ESFJ","ESFP"
 ]
 
-# Pattern allowing ENFP-T / INTJ-A / INFJ/A
+# "Token-safe" pattern for MBTI type codes, allowing ENFP-T / INTJ-A / INFJ/A
 MBTI_TYPE_RE = re.compile(
     r"(?<![A-Za-z])("
     + "|".join(MBTI_TYPES)
@@ -34,8 +35,20 @@ MBTI_TYPE_RE = re.compile(
 INTROVERT_WORD_RE = re.compile(r"\bintro[\s\-]?vert(?:ed|s)?\b", re.IGNORECASE)
 EXTROVERT_WORD_RE = re.compile(r"\b(?:extro|extra)[\s\-]?vert(?:ed|s)?\b", re.IGNORECASE)
 
+MBTI_META_RE = re.compile(r"\b(mbti|myers[\s\-]?briggs)\b", re.IGNORECASE)
+
+
+# ----------------------------
+# Self-description patterns (explicit only)
+# ----------------------------
+# Each pattern returns:
+#  - pattern_id (for your new dataset column)
+#  - regex to match
+#
+# IMPORTANT: these patterns are *explicit self descriptions*, not generic mentions.
+
 SELF_DESC_PATTERNS = [
-    # Captures for example "I am / I'm / Im an INFJ"
+    # 1) "I am / I'm / Im an INFJ"
     (
         "SELF_MBTYPE_I_AM",
         re.compile(
@@ -45,7 +58,7 @@ SELF_DESC_PATTERNS = [
         )
     ),
 
-    # Captures for example "As an INFJ, ..." / "As a INFJ, ..."
+    # 2) "As an INFJ, ..." / "As a INFJ, ..."
     (
         "SELF_MBTYPE_AS_AN",
         re.compile(
@@ -55,7 +68,7 @@ SELF_DESC_PATTERNS = [
         )
     ),
 
-    # Captures for example "MBTI: INFJ" / "my mbti is infj"
+    # 3) "MBTI: INFJ" / "my mbti is infj"
     (
         "SELF_MBTYPE_MY_MBTI_IS",
         re.compile(
@@ -65,7 +78,7 @@ SELF_DESC_PATTERNS = [
         )
     ),
 
-    # Captures for example "My type is INTJ" / "type: ENFP"
+    # 4) "My type is INTJ" / "type: ENFP"
     (
         "SELF_MBTYPE_TYPE_IS",
         re.compile(
@@ -75,7 +88,7 @@ SELF_DESC_PATTERNS = [
         )
     ),
 
-    # Captures for example "I am an introvert" / "I'm introverted"
+    # 5) "I am an introvert" / "I'm introverted"
     (
         "SELF_TRAIT_I_AM_INTROVERT",
         re.compile(
@@ -84,7 +97,7 @@ SELF_DESC_PATTERNS = [
         )
     ),
 
-    # Captures for example "I am an extrovert" / "I'm extroverted/extraverted"
+    # 6) "I am an extrovert" / "I'm extroverted/extraverted"
     (
         "SELF_TRAIT_I_AM_EXTROVERT",
         re.compile(
@@ -93,7 +106,7 @@ SELF_DESC_PATTERNS = [
         )
     ),
 
-    # Captures for example "introvert here" / "extrovert here" (common Reddit self-ID pattern)
+    # 7) "introvert here" / "extrovert here" (common Reddit self-ID pattern)
     (
         "SELF_TRAIT_HERE",
         re.compile(
@@ -102,7 +115,7 @@ SELF_DESC_PATTERNS = [
         )
     ),
 
-    # Captures for example "I'm more of an introvert" / "I'm more extroverted than ..."
+    # 8) "I'm more of an introvert" / "I'm more extroverted than ..."
     (
         "SELF_TRAIT_MORE_OF",
         re.compile(
@@ -117,12 +130,16 @@ SELF_DESC_PATTERNS = [
 def detect_mbti_self_description(text: str) -> Optional[Dict[str, str]]:
     """
     Return dict with pattern info if MBTI self-description is detected, else None.
+    Output keys:
+      - identified_pattern
+      - matched_text
+      - mbti_type (optional)
     """
     if not isinstance(text, str) or not text.strip():
         return None
 
-    for pattern_id, regex in SELF_DESC_PATTERNS:
-        m = regex.search(text)
+    for pattern_id, rx in SELF_DESC_PATTERNS:
+        m = rx.search(text)
         if m:
             out = {
                 "identified_pattern": pattern_id,
@@ -135,31 +152,32 @@ def detect_mbti_self_description(text: str) -> Optional[Dict[str, str]]:
             else:
                 out["mbti_type"] = None
 
-            if "trait" in m.groupdict() and m.group("trait") is not None:
-                out["trait"] = m.group("trait").lower()
-            else:
-                out["trait"] = None
-
             return out
 
     return None
 
 
+# ----------------------------
+# Apply detection + filter dataset
+# ----------------------------
+df_sd = df.copy()
 
-reddit_posts_df_copy = reddit_posts_df.copy()
+detected = df_sd["post"].apply(detect_mbti_self_description)
 
-filtered_posts = reddit_posts_df_copy["post"].apply(detect_mbti_self_description)
+df_sd["identified_pattern"] = detected.apply(lambda x: x["identified_pattern"] if isinstance(x, dict) else None)
+df_sd["matched_text"] = detected.apply(lambda x: x["matched_text"] if isinstance(x, dict) else None)
+df_sd["mbti_type_detected"] = detected.apply(lambda x: x["mbti_type"] if isinstance(x, dict) else None)
 
-reddit_posts_df_copy["identified_pattern"] = filtered_posts.apply(lambda x: x["identified_pattern"] if isinstance(x, dict) else None)
-reddit_posts_df_copy["matched_text"] = filtered_posts.apply(lambda x: x["matched_text"] if isinstance(x, dict) else None)
-reddit_posts_df_copy["mbti_type_detected"] = filtered_posts.apply(lambda x: x["mbti_type"] if isinstance(x, dict) else None)
-reddit_posts_df_copy["trait_detected"] = filtered_posts.apply(lambda x: x["trait"] if isinstance(x, dict) else None)
+# Keep only posts with explicit self-description
+df_self_descriptions = df_sd[df_sd["identified_pattern"].notna()].reset_index(drop=True)
 
-# Create a df only containing posts with self-descriptions
-df_self_descriptions = reddit_posts_df_copy[reddit_posts_df_copy["identified_pattern"].notna()].reset_index(drop=True)
+# Save
+df_self_descriptions.to_csv("MBTI_self_descriptions_only.csv", index=False)
 
-df_self_descriptions.to_csv("self_descriptions_only.csv", index=False)
-
-print("Total posts:", len(reddit_posts_df))
+print("Total posts:", len(df))
 print("Self-description MBTI posts:", len(df_self_descriptions))
-print(df_self_descriptions[["identified_pattern", "matched_text"]].head(10))
+
+df_self_descriptions.to_parquet("MBTI_self_descriptions_only.parquet", index=False)
+df = pd.read_parquet("MBTI_self_descriptions_only.parquet")
+
+df.head(10).to_csv("MBTI_self_descriptions_only_sample.csv", index=False)
